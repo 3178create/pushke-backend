@@ -1,0 +1,131 @@
+// Pushke data model.
+// Dev default is SQLite so the project runs with zero external setup.
+// For production, switch datasource.provider to "postgresql" and set DATABASE_URL
+// to a real Postgres connection string (e.g. Supabase, RDS, Railway, Neon).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite" // change to "postgresql" for production
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+
+  memberships  Membership[]
+  pledges      Pledge[]
+}
+
+model Group {
+  id            String   @id @default(cuid())
+  name          String
+  brandColor    String?  // Pushke+ custom branding
+  createdAt     DateTime @default(now())
+  lat           Float?   // for Hebcal candle-lighting lookups
+  lng           Float?
+
+  memberships   Membership[]
+  pledges       Pledge[]
+  payouts       Payout[]
+  subscription  Subscription?
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum Relation {
+  FAMILY
+  FRIEND
+}
+
+enum MembershipStatus {
+  ACTIVE
+  PENDING
+}
+
+model Membership {
+  id            String            @id @default(cuid())
+  group         Group             @relation(fields: [groupId], references: [id])
+  groupId       String
+  user          User?             @relation(fields: [userId], references: [id])
+  userId        String?
+  invitedEmail  String            // set even after acceptance, for record-keeping
+  role          Role              @default(MEMBER)
+  relation      Relation          @default(FAMILY)
+  status        MembershipStatus  @default(PENDING)
+  createdAt     DateTime          @default(now())
+
+  @@unique([groupId, invitedEmail])
+}
+
+model Org {
+  id        String   @id @default(cuid())
+  name      String
+  ein       String
+  category  String   // e.g. "Israel · Emergency medical"
+  website   String?
+  curated   Boolean  @default(false) // true = shown as a recommended auto-donate option
+  createdAt DateTime @default(now())
+}
+
+enum PledgeStatus {
+  PLEDGED   // counted in the box, not yet charged
+  CHARGED   // charge succeeded, awaiting disbursement
+  DISBURSED // included in a completed Payout
+}
+
+model Pledge {
+  id        String       @id @default(cuid())
+  group     Group        @relation(fields: [groupId], references: [id])
+  groupId   String
+  user      User         @relation(fields: [userId], references: [id])
+  userId    String
+  amount    Int          // cents
+  status    PledgeStatus @default(PLEDGED)
+  method    String       // "card" | "venmo" | "cashapp" | "zelle"
+  createdAt DateTime     @default(now())
+}
+
+model Payout {
+  id         String        @id @default(cuid())
+  group      Group         @relation(fields: [groupId], references: [id])
+  groupId    String
+  amount     Int           // cents, total sent
+  createdAt  DateTime      @default(now())
+  splits     PayoutSplit[]
+}
+
+model PayoutSplit {
+  id         String  @id @default(cuid())
+  payout     Payout  @relation(fields: [payoutId], references: [id])
+  payoutId   String
+  orgId      String
+  orgName    String  // denormalized snapshot at time of send, for tax records
+  orgEin     String
+  percentage Int
+  amount     Int     // cents
+  receiptUrl String? // from the donation processor, once real API is wired in
+}
+
+enum SubPlan {
+  FREE
+  PLUS
+}
+
+model Subscription {
+  id               String   @id @default(cuid())
+  group            Group    @relation(fields: [groupId], references: [id])
+  groupId          String   @unique
+  plan             SubPlan  @default(FREE)
+  storeKitTxId     String?  // Apple StoreKit original transaction id, once wired in
+  currentPeriodEnd DateTime?
+}
